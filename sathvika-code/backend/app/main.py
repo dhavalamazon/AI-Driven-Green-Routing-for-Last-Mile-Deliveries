@@ -11,6 +11,7 @@ app = FastAPI()
 # Allow requests from your frontend
 origins = [
     "http://localhost:5173",  # Vite dev server
+    "http://localhost:3000",  # Next.js dev server
 ]
 
 app.add_middleware(
