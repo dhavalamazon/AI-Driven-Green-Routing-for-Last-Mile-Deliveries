@@ -17,14 +17,14 @@ export function RouteComparisonPanel() {
 
   // Dummy data for demonstration
   const metrics = {
-    fastest: { time: "1h 30m", fuel: 10.5, co2: 24.5 },
-    fuelEfficient: { time: "1h 45m", fuel: 8.2, co2: 19.1 },
-    fuelSaved: "22%",
+    fastest: { time: "2h 15m", fuel: 12.8, co2: 29.8, deliveries: 8 },
+    lowCarbon: { time: "2h 35m", fuel: 9.4, co2: 21.9, deliveries: 8 },
+    carbonSaved: "27%",
   }
 
   const chartData = [
-    { name: "Fastest", fuel: metrics.fastest.fuel, time: 90 }, // time in minutes
-    { name: "Fuel-Efficient", fuel: metrics.fuelEfficient.fuel, time: 105 },
+    { name: "Fastest", fuel: metrics.fastest.fuel, time: 135, co2: metrics.fastest.co2 },
+    { name: "Low Carbon", fuel: metrics.lowCarbon.fuel, time: 155, co2: metrics.lowCarbon.co2 },
   ]
 
   return (
@@ -40,23 +40,28 @@ export function RouteComparisonPanel() {
         <VehicleSelector />
 
         <div className="grid grid-cols-2 gap-4">
-          <MetricsCard title="Travel Time" fastest={metrics.fastest.time} fuelEfficient={metrics.fuelEfficient.time} />
+          <MetricsCard title="Delivery Time" fastest={metrics.fastest.time} fuelEfficient={metrics.lowCarbon.time} />
           <MetricsCard
-            title="Fuel Consumption"
+            title="Fuel Used"
             fastest={`${metrics.fastest.fuel} L`}
-            fuelEfficient={`${metrics.fuelEfficient.fuel} L`}
+            fuelEfficient={`${metrics.lowCarbon.fuel} L`}
           />
           <MetricsCard
             title="CO₂ Emissions"
             fastest={`${metrics.fastest.co2} kg`}
-            fuelEfficient={`${metrics.fuelEfficient.co2} kg`}
+            fuelEfficient={`${metrics.lowCarbon.co2} kg`}
           />
-          <Card className="col-span-2 bg-primary text-primary-foreground shadow-sm">
+          <MetricsCard
+            title="Deliveries"
+            fastest={`${metrics.fastest.deliveries}`}
+            fuelEfficient={`${metrics.lowCarbon.deliveries}`}
+          />
+          <Card className="col-span-2 bg-green-600 text-white shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Fuel Saved</CardTitle>
+              <CardTitle className="text-sm font-medium">Carbon Footprint Reduced</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{metrics.fuelSaved}</div>
+              <div className="text-2xl font-bold">{metrics.carbonSaved}</div>
             </CardContent>
           </Card>
         </div>
@@ -77,11 +82,11 @@ export function RouteComparisonPanel() {
               </Button>
             </div>
             <div className="flex items-center justify-between">
-              <span>Fuel-Efficient Route (Green)</span>
+              <span>Low Carbon Route (Green)</span>
               <Button
                 variant={showFuelEfficientRoute ? "default" : "outline"}
                 onClick={() => setShowFuelEfficientRoute(!showFuelEfficientRoute)}
-                className={showFuelEfficientRoute ? "bg-primary hover:bg-green-700 text-white" : ""}
+                className={showFuelEfficientRoute ? "bg-green-600 hover:bg-green-700 text-white" : ""}
               >
                 {showFuelEfficientRoute ? "Hide" : "Show"}
               </Button>
@@ -98,8 +103,8 @@ export function RouteComparisonPanel() {
           </CardContent>
         </Card>
 
-        <Button className="w-full bg-primary hover:bg-green-700 text-primary-foreground py-2 rounded-md shadow-sm">
-          Compare Routes
+        <Button className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md shadow-sm">
+          Optimize Delivery Route
         </Button>
       </div>
     </div>
