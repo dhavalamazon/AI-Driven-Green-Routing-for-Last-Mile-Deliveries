@@ -36,7 +36,7 @@ export function RouteComparisonPanel() {
         </Button>
       </div>
 
-      <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${isPanelOpen ? "block" : "hidden"} lg:block`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-visible p-4 space-y-4 ${isPanelOpen ? "block" : "hidden"} lg:block`}>
         <VehicleSelector />
 
         <div className="grid grid-cols-2 gap-4">
