@@ -15,8 +15,8 @@ export default function App() {
   const [trafficLevel, setTrafficLevel] = useState("Moderate");
   const [areaInfo, setAreaInfo] = useState(null);
 
-  // Get traffic conditions using backend API for consistency
-  async function updateTrafficConditions(time, locations) {
+  // Get traffic conditions using tier-based detection
+  function updateTrafficConditions(time, locations) {
     const hour = parseInt(time.split(':')[0]);
     
     // If no locations selected yet, show generic pattern
@@ -32,28 +32,110 @@ export default function App() {
       return genericTraffic;
     }
     
-    try {
-      // Use backend API for consistent classification
-      const response = await fetch("http://localhost:8000/get-traffic-level", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          locations: locations,
-          hour: hour
-        })
-      });
-      
-      const data = await response.json();
-      console.log('Backend traffic detection:', data);
-      
-      setTrafficLevel(data.traffic_level);
-      return data.traffic_level;
-    } catch (error) {
-      console.error('Traffic detection error:', error);
-      // Fallback to moderate
-      setTrafficLevel("Moderate");
-      return "Moderate";
+    // Calculate average coordinates
+    const avgLat = locations.reduce((sum, loc) => sum + loc.lat, 0) / locations.length;
+    const avgLng = locations.reduce((sum, loc) => sum + loc.lon, 0) / locations.length;
+    
+    console.log('🔍 TRAFFIC DEBUG:', {
+      avgLat: avgLat.toFixed(4),
+      avgLng: avgLng.toFixed(4),
+      hour: hour,
+      locationCount: locations.length
+    });
+    
+    // Check if locations are in known urban centers
+    const bangaloreMatch = (avgLat > 12.7 && avgLat < 13.2 && avgLng > 77.4 && avgLng < 77.8);
+    const mumbaiMatch = (avgLat > 18.9 && avgLat < 19.3 && avgLng > 72.7 && avgLng < 73.1);
+    const delhiMatch = (avgLat > 28.4 && avgLat < 28.8 && avgLng > 76.9 && avgLng < 77.4);
+    const kolkataMatch = (avgLat > 22.4 && avgLat < 22.8 && avgLng > 88.2 && avgLng < 88.5);
+    const chennaiMatch = (avgLat > 12.8 && avgLat < 13.3 && avgLng > 80.1 && avgLng < 80.4);
+    const hyderabadMatch = (avgLat > 17.2 && avgLat < 17.6 && avgLng > 78.3 && avgLng < 78.6);
+    
+    console.log('🏙️ CITY MATCHES:', {
+      bangalore: bangaloreMatch,
+      mumbai: mumbaiMatch,
+      delhi: delhiMatch,
+      kolkata: kolkataMatch,
+      chennai: chennaiMatch,
+      hyderabad: hyderabadMatch
+    });
+    
+    const isUrbanCenter = (
+      bangaloreMatch || mumbaiMatch || delhiMatch || kolkataMatch || chennaiMatch || hyderabadMatch ||
+      // Tier-2 cities (Major urban centers)
+      (avgLat > 18.3 && avgLat < 18.7 && avgLng > 73.7 && avgLng < 74.0) || // Pune
+      (avgLat > 22.9 && avgLat < 23.2 && avgLng > 72.4 && avgLng < 72.7) || // Ahmedabad
+      (avgLat > 26.7 && avgLat < 27.1 && avgLng > 75.6 && avgLng < 76.0) || // Jaipur
+      (avgLat > 21.0 && avgLat < 21.4 && avgLng > 78.9 && avgLng < 79.2) || // Nagpur
+      (avgLat > 15.2 && avgLat < 15.6 && avgLng > 75.0 && avgLng < 75.3) || // Hubli-Dharwad
+      (avgLat > 26.0 && avgLat < 26.4 && avgLng > 91.6 && avgLng < 91.9) || // Guwahati
+      (avgLat > 10.9 && avgLat < 11.3 && avgLng > 76.8 && avgLng < 77.2) || // Coimbatore
+      (avgLat > 8.3 && avgLat < 8.7 && avgLng > 76.8 && avgLng < 77.2) ||   // Thiruvananthapuram
+      (avgLat > 9.8 && avgLat < 10.2 && avgLng > 76.1 && avgLng < 76.5) || // Kochi
+      (avgLat > 20.1 && avgLat < 20.5 && avgLng > 85.7 && avgLng < 86.1) || // Bhubaneswar
+      false
+    );
+    
+    // Calculate coordinate spread for density analysis
+    const latSpread = Math.max(...locations.map(l => l.lat)) - Math.min(...locations.map(l => l.lat));
+    const lngSpread = Math.max(...locations.map(l => l.lon)) - Math.min(...locations.map(l => l.lon));
+    const totalSpread = latSpread + lngSpread;
+    
+    console.log('📊 SPREAD ANALYSIS:', {
+      latSpread: latSpread.toFixed(4),
+      lngSpread: lngSpread.toFixed(4),
+      totalSpread: totalSpread.toFixed(4),
+      isUrbanCenter: isUrbanCenter
+    });
+    
+    // Determine area type using both location and spread
+    let areaType = "suburban";
+    if (isUrbanCenter && totalSpread < 0.4) {
+      areaType = "dense_urban";  // In city center AND reasonably concentrated
+    } else if (isUrbanCenter && totalSpread < 0.8) {
+      areaType = "suburban";     // In city but spread out
+    } else if (!isUrbanCenter) {
+      areaType = "rural";        // Outside all known cities
     }
+    
+    // Adjust traffic patterns based on area type
+    let traffic;
+    if (areaType === "dense_urban") {
+      if (hour >= 8 && hour < 11) traffic = "Heavy";        // Morning rush
+      else if (hour >= 11 && hour < 17) traffic = "Moderate"; // Daytime
+      else if (hour >= 17 && hour < 20) traffic = "Heavy";   // Evening rush
+      else if (hour >= 20 && hour < 23) traffic = "Moderate"; // Night moderate
+      else traffic = "Free flow";  // Late night/early morning
+    } else if (areaType === "rural") {
+      if (hour >= 8 && hour < 10) traffic = "Moderate";     // Light morning rush
+      else if (hour >= 17 && hour < 19) traffic = "Moderate"; // Light evening rush
+      else traffic = "Free flow";
+    } else { // suburban
+      if (hour >= 8 && hour < 11) traffic = "Heavy";        // Morning rush
+      else if (hour >= 11 && hour < 17) traffic = "Moderate"; // Daytime
+      else if (hour >= 17 && hour < 20) traffic = "Heavy";   // Evening rush
+      else traffic = "Free flow";  // Night/early morning
+    }
+    
+    console.log('🚦 TRAFFIC RESULT:', {
+      areaType: areaType,
+      hour: hour,
+      traffic: traffic,
+      reason: areaType === "dense_urban" ? 
+        (hour >= 8 && hour < 11 ? "Dense urban morning rush (8-11AM)" :
+         hour >= 11 && hour < 17 ? "Dense urban daytime (11AM-5PM)" :
+         hour >= 17 && hour < 20 ? "Dense urban evening rush (5-8PM)" :
+         hour >= 20 && hour < 23 ? "Dense urban night moderate" : "Dense urban free flow") :
+        areaType === "rural" ?
+        (hour >= 8 && hour < 10 ? "Rural morning (8-10AM)" :
+         hour >= 17 && hour < 19 ? "Rural evening (5-7PM)" : "Rural free flow") :
+        (hour >= 8 && hour < 11 ? "Suburban morning rush (8-11AM)" :
+         hour >= 11 && hour < 17 ? "Suburban daytime (11AM-5PM)" :
+         hour >= 17 && hour < 20 ? "Suburban evening rush (5-8PM)" : "Suburban free flow")
+    });
+    
+    setTrafficLevel(traffic);
+    return traffic;
   }
 
   // Update traffic when locations or time changes

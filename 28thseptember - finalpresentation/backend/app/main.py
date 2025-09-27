@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from create_route_alternatives import create_route_alternatives
-from ai_model import RouteScorer, route_features, load_model_with_scaler
-from traffic_service import get_route_traffic_analysis
+from ai_model import RouteScorer, load_model_with_scaler
+
 import torch
 import random
 import hashlib
@@ -46,68 +46,7 @@ class OptimizeRequest(BaseModel):
     fuel_type: str = "Petrol"  # Electric, Hybrid, Petrol, Diesel
     traffic_conditions: str = "Moderate"  # Free flow, Moderate, Heavy
 
-@app.post("/classify-area")
-def classify_area(locations: list):
-    """Classify area type for traffic detection - consistent with backend route analysis"""
-    if not locations or len(locations) < 2:
-        return {"area_type": "mixed", "traffic_multiplier": 1.0}
-    
-    # Convert to route format
-    route = [{'lat': loc['lat'], 'lon': loc['lon']} for loc in locations]
-    
-    # Calculate total distance
-    from utils import haversine_distance
-    total_distance = sum([haversine_distance(route[i], route[i+1]) for i in range(len(route)-1)])
-    
-    # Use same backend classification logic
-    route_characteristics = analyze_route_characteristics(route, total_distance)
-    area_type = route_characteristics['type']
-    
-    # Detect city for time-based traffic
-    from traffic_service import detect_city
-    city_info = detect_city(route[0])
-    
-    return {
-        "area_type": area_type,
-        "city": city_info['name'],
-        "characteristics": {
-            "avg_segment_length": round(route_characteristics['avg_segment_length'], 2),
-            "coordinate_spread": round(route_characteristics['coordinate_spread'], 4),
-            "turns_per_km": round(route_characteristics['turns_per_km'], 2)
-        }
-    }
 
-@app.post("/get-traffic-level")
-def get_traffic_level(data: dict):
-    """Get traffic level based on locations, time, and area type"""
-    locations = data.get('locations', [])
-    hour = data.get('hour', 12)
-    
-    if not locations:
-        return {"traffic_level": "Moderate"}
-    
-    # Use backend traffic detection
-    from traffic_service import detect_city, get_time_traffic_multiplier
-    
-    route = [{'lat': loc['lat'], 'lon': loc['lon']} for loc in locations]
-    city_info = detect_city(route[0])
-    
-    # Get time-based multiplier
-    time_multiplier = get_time_traffic_multiplier(hour, city_info['name'])
-    
-    # Convert multiplier to traffic level
-    if time_multiplier >= 1.5:
-        traffic_level = "Heavy"
-    elif time_multiplier >= 1.1:
-        traffic_level = "Moderate"
-    else:
-        traffic_level = "Free flow"
-    
-    return {
-        "traffic_level": traffic_level,
-        "city": city_info['name'],
-        "time_multiplier": time_multiplier
-    }
 
 @app.post("/optimize")
 def optimize(req: OptimizeRequest):
