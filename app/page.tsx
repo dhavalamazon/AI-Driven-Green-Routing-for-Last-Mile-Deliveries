@@ -1,5 +1,5 @@
 import { SearchBar } from "@/components/search-bar"
-import { MapDisplay } from "@/components/map-display"
+import { DynamicMapDisplay } from "@/components/dynamic-map"
 import { RouteComparisonPanel } from "@/components/route-comparison-panel"
 
 export default function Home() {
@@ -12,7 +12,7 @@ export default function Home() {
 
       {/* Map Display */}
       <div className="flex-1">
-        <MapDisplay />
+        <DynamicMapDisplay />
       </div>
 
       {/* Route Comparison Panel */}

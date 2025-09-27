@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from create_route_alternatives import create_route_alternatives
-from ai_model import RouteScorer, route_features, load_model_with_scaler
-from traffic_service import get_route_traffic_analysis
+from .create_route_alternatives import create_route_alternatives
+from .ai_model import RouteScorer, route_features, load_model_with_scaler
+from .traffic_service import get_route_traffic_analysis
 import torch
 import random
 import hashlib
@@ -51,7 +51,7 @@ def optimize(req: OptimizeRequest):
     
     for i, route in enumerate(candidates):
         # Calculate distance using road-aware routing
-        from utils import calculate_route_distance
+        from .utils import calculate_route_distance
         distance = calculate_route_distance(route)
         
         # Create route mapping for debugging
@@ -143,7 +143,7 @@ def optimize(req: OptimizeRequest):
                 break
     
     # Generate road waypoints for map visualization
-    from utils import generate_road_waypoints
+    from .utils import generate_road_waypoints
     route_waypoints = []
     for i in range(len(best_route) - 1):
         segment_waypoints = generate_road_waypoints(best_route[i], best_route[i + 1])
@@ -213,7 +213,7 @@ def analyze_route_characteristics(route, total_distance):
     if len(route) < 2:
         return {'type': 'unknown', 'segments': [], 'density': 0}
     
-    from utils import road_aware_distance, haversine_distance
+    from .utils import road_aware_distance, haversine_distance
     import math
     
     # Calculate segment characteristics
