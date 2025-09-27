@@ -55,9 +55,19 @@ export default function ResultsView({ data }) {
               </div>
             </div>
           </div>
-          {data.shortest_route_comparison.co2_savings > 0 && (
+          {data.shortest_route_comparison.is_different_route && data.shortest_route_comparison.co2_savings > 0 && (
             <div style={{ marginTop: "10px", padding: "8px", backgroundColor: "#E8F5E8", borderRadius: "3px", fontSize: "12px", color: "#2E7D32", textAlign: "center" }}>
-              💚 <strong>CO₂ Savings: {data.shortest_route_comparison.co2_savings}kg</strong> by choosing {data.shortest_route_comparison.distance_difference > 0 ? `+${data.shortest_route_comparison.distance_difference}km longer` : 'shorter'} green route
+              🌱 <strong>GREEN CHOICE:</strong> {data.shortest_route_comparison.green_choice_message}
+            </div>
+          )}
+          {data.shortest_route_comparison.is_different_route && data.shortest_route_comparison.co2_savings <= 0 && (
+            <div style={{ marginTop: "10px", padding: "8px", backgroundColor: "#FFF3E0", borderRadius: "3px", fontSize: "12px", color: "#E65100", textAlign: "center" }}>
+              ℹ️ In current traffic conditions, shortest route is also the greenest
+            </div>
+          )}
+          {!data.shortest_route_comparison.is_different_route && (
+            <div style={{ marginTop: "10px", padding: "8px", backgroundColor: "#E3F2FD", borderRadius: "3px", fontSize: "12px", color: "#1565C0", textAlign: "center" }}>
+              ℹ️ Same route chosen for both shortest and greenest
             </div>
           )}
         </div>

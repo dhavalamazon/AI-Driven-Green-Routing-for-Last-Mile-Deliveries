@@ -66,6 +66,7 @@ def optimize(req: OptimizeRequest):
     shortest_distance = float("inf")
     shortest_co2 = 0
     shortest_route_mapping = []
+    shortest_adjusted_score = 0
     
     print(f"\n🔍 Evaluating {len(candidates)} route alternatives...")
     
@@ -125,7 +126,8 @@ def optimize(req: OptimizeRequest):
             co2_score = apply_realistic_corrections(raw_co2_grams, req.vehicle_type, req.fuel_type, engine_size, speed, distance)
             
             print(f"  AI Features: Speed={speed:.1f}km/h, Engine={engine_size:.1f}L, Traffic={traffic_encoded}, Vehicle={vehicle_encoded}, Fuel={fuel_encoded}")
-            print(f"  AI Prediction: {ai_prediction:.2f}g → Raw: {raw_co2_grams:.0f}g → Corrected: {co2_score:.2f}kg for {distance:.2f}km")
+            print(f"  AI Prediction: {ai_prediction:.2f}g/unit → Scaled: {raw_co2_grams:.0f}g → AI+Physics: {co2_score:.2f}kg for {distance:.2f}km")
+            print(f"  🤖 AI Base: {(raw_co2_grams/distance):.1f}g/km → Physics Corrected: {(co2_score*1000/distance):.1f}g/km")
         else:
             raise RuntimeError("AI model failed to load - this should not happen after auto-training")
         
@@ -136,12 +138,16 @@ def optimize(req: OptimizeRequest):
         vehicle_penalty = calculate_vehicle_route_penalty(req.vehicle_type, route_characteristics, req.traffic_conditions)
         adjusted_score = co2_score * (1 + vehicle_penalty)
         
+        print(f"  📊 Route: {route_characteristics['type']}, Turns/km: {route_characteristics['turns_per_km']:.1f}, Avg segment: {route_characteristics['avg_segment_length']:.1f}km")
+        print(f"  ⚖️  Penalty: {vehicle_penalty:.1%} → Adjusted: {adjusted_score:.2f}kg CO2")
+        
         # Track shortest route
         if distance < shortest_distance:
             shortest_distance = distance
             shortest_route = route
             shortest_co2 = co2_score
             shortest_route_mapping = route_indices.copy()
+            shortest_adjusted_score = adjusted_score  # Track adjusted score too
         
         if adjusted_score < best_score:
             print(f"  ⭐ NEW BEST: Route {i+1} with {adjusted_score:.2f}kg CO2")
@@ -157,7 +163,15 @@ def optimize(req: OptimizeRequest):
             if stop['lat'] == original_stop['lat'] and stop['lon'] == original_stop['lon']:
                 selected_indices.append(i + 1)
                 break
-    print(f"\n✅ Selected: {' → '.join(map(str, selected_indices))} | {best_distance:.2f}km | {best_co2:.2f}kg CO2\n")
+    print(f"\n✅ Selected GREENEST: {' → '.join(map(str, selected_indices))} | {best_distance:.2f}km | {best_co2:.2f}kg base → {best_score:.2f}kg adjusted")
+    print(f"📍 SHORTEST was: {' → '.join(map(str, shortest_route_mapping))} | {shortest_distance:.2f}km | {shortest_co2:.2f}kg base → {shortest_adjusted_score:.2f}kg adjusted")
+    
+    if best_distance != shortest_distance:
+        adjusted_savings = shortest_adjusted_score - best_score
+        extra_distance = best_distance - shortest_distance
+        print(f"🌱 GREEN CHOICE: +{extra_distance:.1f}km distance but -{adjusted_savings:.2f}kg CO2 savings (after penalties)!\n")
+    else:
+        print(f"ℹ️ Same route chosen for both shortest and greenest\n")
     
     # Get default values for response
     default_engines = {'Car': 2.0, 'Truck': 4.5, 'Bus': 5.0, 'Motorcycle': 1.5}
@@ -185,14 +199,19 @@ def optimize(req: OptimizeRequest):
         "best_route": best_route, 
         "route_waypoints": route_waypoints,  # For map visualization
         "route_mapping": route_mapping,
-        "predicted_co2": round(best_co2, 2),
+        "predicted_co2": round(best_score, 2),  # Send adjusted CO2 as main value
         "total_distance": round(best_distance, 2),
         "shortest_route_comparison": {
             "route_mapping": shortest_route_mapping,
             "distance": round(shortest_distance, 2),
-            "co2": round(shortest_co2, 2),
-            "co2_savings": round(shortest_co2 - best_co2, 2),
-            "distance_difference": round(best_distance - shortest_distance, 2)
+            "co2": round(shortest_adjusted_score, 2),  # Send adjusted CO2 for shortest route
+            "co2_savings": round(shortest_adjusted_score - best_score, 2),  # Use adjusted values for savings
+            "distance_difference": round(best_distance - shortest_distance, 2),
+            "shortest_adjusted_co2": round(shortest_adjusted_score, 2),
+            "greenest_adjusted_co2": round(best_score, 2),
+            "adjusted_co2_savings": round(shortest_adjusted_score - best_score, 2),
+            "is_different_route": best_distance != shortest_distance,
+            "green_choice_message": f"+{round(best_distance - shortest_distance, 1)}km distance but -{round(shortest_adjusted_score - best_score, 2)}kg CO2 savings!" if best_distance != shortest_distance else None
         },
         "input_features": {
             "vehicle_type": req.vehicle_type,
@@ -206,47 +225,51 @@ def optimize(req: OptimizeRequest):
 def apply_realistic_corrections(raw_co2_grams, vehicle_type, fuel_type, engine_size, speed, distance):
     """Apply realistic physics-based corrections to AI predictions"""
     
-    # Base emissions factors (g CO2/km) for different vehicle types
-    base_emissions = {
-        'Car': 140,         # Typical car: ~140g CO2/km
-        'Motorcycle': 85,   # Smaller, lighter: ~85g CO2/km
-        'Truck': 350,       # Heavy truck: ~350g CO2/km
-        'Bus': 500          # Large bus: ~500g CO2/km
-    }
+    # START WITH AI PREDICTION as the base - TRUST THE AI MORE
+    ai_base_per_km = raw_co2_grams / distance if distance > 0 else raw_co2_grams
     
-    # Fuel type efficiency multipliers
+    # Fuel type efficiency multipliers (apply to AI prediction)
     fuel_factors = {
-        'Electric': 0.2,    # Very low emissions (electricity generation)
-        'Hybrid': 0.6,      # Moderate emissions
-        'Petrol': 1.0,      # Baseline
-        'Diesel': 1.15      # Slightly higher but more efficient
+        'Electric': 0.4,    # AI learned patterns, moderate electric adjustment
+        'Hybrid': 0.8,      # AI learned patterns, moderate hybrid adjustment
+        'Petrol': 1.0,      # Baseline - trust AI prediction completely
+        'Diesel': 1.05      # AI learned patterns, very slight diesel adjustment
     }
     
-    # Calculate realistic CO2 based on vehicle type and fuel
-    base_co2_per_km = base_emissions.get(vehicle_type, 150)
-    fuel_multiplier = fuel_factors.get(fuel_type, 1.0)
-    
-    # Engine size factor (larger engines = more fuel consumption)
-    engine_factor = 0.7 + (engine_size * 0.15)  # Scale with engine size
-    
-    # Speed efficiency curve (most efficient around 50-60 km/h)
+    # Speed efficiency curve (apply to AI prediction) - MORE AGGRESSIVE
     if speed < 20:
-        speed_factor = 1.4  # Very inefficient at very low speeds
+        speed_factor = 1.8  # Heavy penalty for stop-and-go
     elif speed < 40:
-        speed_factor = 1.2  # Inefficient in stop-and-go traffic
+        speed_factor = 1.4  # Significant penalty for city traffic
     elif speed <= 70:
-        speed_factor = 1.0  # Optimal efficiency range
+        speed_factor = 1.0  # AI learned optimal range, trust it
     elif speed <= 90:
-        speed_factor = 1.1  # Slightly less efficient
+        speed_factor = 1.1  # Slight highway inefficiency
     else:
-        speed_factor = 1.3  # Much less efficient at high speeds
+        speed_factor = 1.3  # High-speed inefficiency
     
-    # Calculate realistic CO2 emissions in grams
-    co2_per_km = base_co2_per_km * fuel_multiplier * engine_factor * speed_factor
-    total_co2_grams = co2_per_km * distance
+    # Engine size factor (apply to AI prediction) - MORE SENSITIVE
+    engine_factor = 0.8 + (engine_size * 0.1)  # More engine size impact
     
-    # Convert to kg and return
-    return total_co2_grams / 1000
+    # Apply corrections to AI prediction
+    fuel_multiplier = fuel_factors.get(fuel_type, 1.0)
+    corrected_co2_per_km = ai_base_per_km * fuel_multiplier * engine_factor * speed_factor
+    total_co2_grams = corrected_co2_per_km * distance
+    
+    # REMOVE ARTIFICIAL BOUNDS - Trust AI + corrections
+    # Only apply very loose safety bounds
+    min_co2_per_km = 20   # Very low minimum
+    max_co2_per_km = 1200 # Very high maximum
+    
+    final_co2_per_km = max(min_co2_per_km, min(max_co2_per_km, corrected_co2_per_km))
+    final_total_co2_grams = final_co2_per_km * distance
+    
+    # Convert to kg and apply Indian calibration multiplier
+    # Indian average: 121.3g CO2/km, our model predicts ~40g CO2/km
+    # Calibration factor: 3.0x to match Indian driving conditions
+    indian_calibration_factor = 3.0
+    
+    return (final_total_co2_grams / 1000) * indian_calibration_factor
 
 def analyze_route_characteristics(route, total_distance):
     """Generic route analysis that works for any city worldwide"""
@@ -292,7 +315,8 @@ def analyze_route_characteristics(route, total_distance):
         'max_segment_length': max_segment_length,
         'coordinate_spread': coordinate_spread,
         'turns_per_km': turns_per_km,
-        'total_segments': len(segments)
+        'total_segments': len(segments),
+        'total_distance': total_distance
     }
 
 def calculate_coordinate_spread(route):
@@ -335,9 +359,9 @@ def classify_route_type(avg_segment, max_segment, spread, turns_per_km, total_di
 def derive_speed(traffic_conditions, route_type):
     """Derive realistic speed based on traffic and route type"""
     base_speeds = {
-        'Free flow': {'highway': 80, 'suburban': 50, 'dense_urban': 40, 'rural': 60, 'mixed': 50},
-        'Moderate': {'highway': 65, 'suburban': 35, 'dense_urban': 25, 'rural': 45, 'mixed': 35},
-        'Heavy': {'highway': 45, 'suburban': 20, 'dense_urban': 15, 'rural': 35, 'mixed': 25}
+        'Free flow': {'highway': 85, 'suburban': 55, 'dense_urban': 45, 'rural': 65, 'mixed': 55},
+        'Moderate': {'highway': 70, 'suburban': 40, 'dense_urban': 30, 'rural': 50, 'mixed': 40},
+        'Heavy': {'highway': 50, 'suburban': 25, 'dense_urban': 18, 'rural': 40, 'mixed': 30}
     }
     return base_speeds.get(traffic_conditions, {}).get(route_type, 35)
 
@@ -370,28 +394,55 @@ def calculate_vehicle_route_penalty(vehicle_type, route_characteristics, traffic
     """Calculate vehicle-specific penalties for route characteristics"""
     penalty = 0.0
     
-    # Truck penalties for dense urban routes
-    if vehicle_type == 'Truck':
-        # Heavy penalty for dense urban routes (many turns, short segments)
-        if route_characteristics['type'] == 'dense_urban':
-            penalty += 0.25  # 25% CO2 penalty
+    # TRAFFIC-DEPENDENT PENALTIES - Only apply route penalties in heavy traffic
+    if traffic_conditions == 'Heavy':
+        # In heavy traffic, route type matters A LOT
+        route_type = route_characteristics.get('type', 'mixed')
+        if route_type == 'rural':
+            penalty += 0.50  # Rural routes suffer in heavy traffic (stop-and-go)
+        elif route_type == 'mixed':
+            penalty += 0.45  # Mixed routes are inefficient in traffic
+        elif route_type == 'suburban':
+            penalty += 0.35  # Suburban routes have traffic lights
+        elif route_type == 'dense_urban':
+            penalty += 0.60  # Dense urban is worst in heavy traffic
+        elif route_type == 'highway':
+            penalty += 0.10  # Highways maintain flow even in traffic
         
-        # Penalty for high turn frequency (trucks hate stop-and-go)
-        if route_characteristics['turns_per_km'] > 1.5:
-            penalty += 0.15  # 15% penalty for frequent turns
+        # Turn frequency penalties (only matter in heavy traffic)
+        turns_per_km = route_characteristics.get('turns_per_km', 0)
+        if turns_per_km > 0.5:
+            penalty += 0.25  # High turn frequency penalty
+        elif turns_per_km > 0.2:
+            penalty += 0.15  # Moderate turn penalty
+        
+        # Segment length penalties (only matter in heavy traffic)
+        avg_segment = route_characteristics.get('avg_segment_length', 0)
+        if avg_segment < 5:  # Short segments = city driving with lights
+            penalty += 0.20
+        elif avg_segment < 8:  # Medium segments
+            penalty += 0.10
             
-        # Extra penalty in heavy traffic
-        if traffic_conditions == 'Heavy':
-            penalty += 0.20  # 20% penalty for heavy traffic
+    elif traffic_conditions == 'Moderate':
+        # In moderate traffic, route type matters less
+        route_type = route_characteristics.get('type', 'mixed')
+        if route_type == 'dense_urban':
+            penalty += 0.15  # Only dense urban gets penalty
+        elif route_type == 'rural':
+            penalty += 0.10  # Small penalty for rural
             
-        # Penalty for short segments (indicates city driving)
-        if route_characteristics['avg_segment_length'] < 3:
-            penalty += 0.10  # 10% penalty for short segments
+    # In 'Free flow' traffic, NO route penalties - shortest = greenest
     
-    # Car penalties (less severe)
-    elif vehicle_type == 'Car':
-        # Cars are more efficient in city driving, small penalty for very long routes
-        if route_characteristics['type'] == 'highway' and route_characteristics['avg_segment_length'] > 15:
-            penalty += 0.05  # Small penalty for very long highway segments
+    # Base traffic penalties (apply regardless of route)
+    if traffic_conditions == 'Heavy':
+        penalty += 0.20  # Base heavy traffic penalty
+    elif traffic_conditions == 'Moderate':
+        penalty += 0.05  # Small base moderate traffic penalty
+    
+    # Vehicle-specific multipliers
+    if vehicle_type == 'Truck':
+        penalty *= 1.3  # Trucks suffer more from all penalties
+    elif vehicle_type == 'Bus':
+        penalty *= 1.1  # Buses suffer slightly more
     
     return penalty
